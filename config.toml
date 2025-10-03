@@ -1,0 +1,11 @@
+[server]
+bind-address = "0.0.0.0"
+bind-port = 55555
+host-name = "stargate.localhost"
+host-key = "../private.key"
+
+[server.overrides."misskey.localhost"]
+authority = "misskey.localhost:4430"
+
+[server.overrides."mastodon.localhost"]
+authority = "mastodon.localhost:4431"

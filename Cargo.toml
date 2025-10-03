@@ -1,0 +1,32 @@
+[workspace]
+members = [
+  "app-cmd",
+  "driver",
+  "kernel",
+  "server",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["ReiRokusanami <reirokusanami.rdh@gmail.com>"]
+description = "A debugging tool for ActivityPub Protocol"
+
+[workspace.dependencies]
+# async-runtime
+tokio = { version = "^1", features = ["macros", "rt-multi-thread"] }
+
+# error-handling
+thiserror = "^2"
+error-stack = "^0.6"
+
+# logging
+tracing = "^0.1"
+
+# ActivityPub Protocol
+http-msgsign-draft = "0.4.0"
+
+app-cmd = { path = "./app-cmd" }
+driver = { path = "./driver" }
+kernel = { path = "./kernel" }
