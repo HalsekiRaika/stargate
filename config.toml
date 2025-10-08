@@ -1,11 +1,14 @@
 [server]
 bind-address = "0.0.0.0"
-bind-port = 55555
-host-name = "stargate.localhost"
-host-key = "../private.key"
+bind-port = 12864
+host-name = "shuttlepub.localhost"
+
+[server.keypair]
+private = "./.keys/private.pem"
+public = "./.keys/public.pem"
 
 [server.overrides."misskey.localhost"]
-authority = "misskey.localhost:4430"
+resolve = "127.0.0.1:4430"
+certificate = "./.certs/misskey.crt"
 
 [server.overrides."mastodon.localhost"]
-authority = "mastodon.localhost:4431"

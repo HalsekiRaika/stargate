@@ -19,7 +19,7 @@ tokio = { version = "^1", features = ["macros", "rt-multi-thread"] }
 
 # error-handling
 thiserror = "^2"
-error-stack = "^0.6"
+error-stack = { version = "^0.6", features = ["spantrace"] }
 
 # logging
 tracing = "^0.1"

@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, DependOnAppConfig};
+use crate::config::DependOnAppConfig;
 use crate::errors::ApplicationError;
 use error_stack::{Report, ResultExt};
 use kernel::entities::activity::types::Follow;
@@ -39,7 +39,7 @@ where
                 .await
                 .change_context_lazy(|| ApplicationError::Driver)?;
             
-            let myself = ActorId::new(format!("https://{}/relay.actor", self.app_config().hostname()))
+            let myself = ActorId::new(format!("https://{}/relay.actor", self.host_name()))
                 .change_context_lazy(|| ApplicationError::Kernel)?;
             
             let accept = activity.accept(myself);

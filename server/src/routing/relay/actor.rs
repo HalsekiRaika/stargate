@@ -1,7 +1,7 @@
-mod actor;
+mod profile;
 mod inbox;
 
 pub use self::{
-    actor::*,
+    profile::*,
     inbox::*,
 };

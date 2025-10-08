@@ -27,6 +27,7 @@ pub fn setup() -> tracing_appender::non_blocking::WorkerGuard {
         .unwrap_or_else(|_| "trace".into());
     
     tracing_subscriber::registry()
+        .with(tracing_error::ErrorLayer::default())
         .with(
             tracing_subscriber::fmt::layer()
                 .with_filter(EnvFilter::new(directive)),

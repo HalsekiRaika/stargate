@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, LazyLock};
-
+use std::time::SystemTime;
 use error_stack::{Report, ResultExt};
 use http::Method;
 use http_msgsign_draft::digest::body::Body;
@@ -21,7 +22,6 @@ use crate::keyset::{RsaSignerKey, RsaVerifierKey};
 pub struct HttpClient {
     client: reqwest::Client,
     signer: Arc<RsaSignerKey>,
-    authority_overrides: HashMap<String, String>
 }
 
 static SIGNATURE_PARAMS: LazyLock<SignatureParams> = LazyLock::new(|| {
@@ -39,13 +39,14 @@ impl HttpClient {
     #[tracing::instrument(skip_all)]
     pub fn setup(config: Config) -> Result<Self, Report<SetupError>> {
         let mut client = reqwest::Client::builder();
-        let mut authority_overrides = HashMap::new();
         
         for (host, overrides) in config.server.overrides {
             if let Some(cert) = overrides.certificate {
                 let cert = reqwest::Certificate::from_pem(
                     std::fs::read(&cert)
-                        .change_context_lazy(|| SetupError)?
+                        .change_context_lazy(|| SetupError)
+                        .attach_with(|| format!("Cannot read {host} certificate file."))
+                        .attach_with(|| format!("{cert} could not be read, or may not exist."))?
                         .as_slice()
                 ).change_context_lazy(|| SetupError)?;
                 
@@ -53,9 +54,9 @@ impl HttpClient {
                 client = client.add_root_certificate(cert);
             }
             
-            if let Some(authority) = overrides.authority {
-                tracing::debug!("Requests from {host} will have their `authority` changed to {authority}.");
-                authority_overrides.insert(host, authority);
+            if let Some(resolve) = overrides.resolve {
+                tracing::debug!(name: "reqwest::resolve", "{host} resolves to `{resolve:?}`.");
+                client = client.resolve(&host, resolve.to_socket_addr(8080));
             }
         }
         
@@ -65,88 +66,89 @@ impl HttpClient {
         let signer = RsaSignerKey::load(
             config.server.host_name,
             "relay.actor".to_string(),
-            config.server.host_key
+            config.server.keypair.private
         ).change_context_lazy(|| SetupError)?;
         
         Ok(Self {
             client,
             signer: Arc::new(signer),
-            authority_overrides
         })
     }
     
     pub async fn send_activity(&self, uri: impl AsRef<str>, activity: &Activity) -> Result<(), Report<TransportError>> {
-        let body = serde_json::to_vec(activity)
+        let body = serde_json::to_vec(&activity.clone().into_json_ld())
             .change_context_lazy(|| TransportError::Serialization)?;
         
         let uri = uri.as_ref().parse::<http::Uri>()
-            .change_context_lazy(|| TransportError::Request)?;
+            .change_context_lazy(|| TransportError::Request)
+            .attach_with(|| format!("`{}` is not a valid URI.", uri.as_ref()))?;
         
-        let Some(authority) = uri.authority().map(ToString::to_string) else {
-            return Err(Report::new(TransportError::Request)
-                .attach("URI must have an authority."));
-        };
-        
-        let mut uri = uri.into_parts();
-        
-        if let Some(new_authority) = self.authority_overrides.get(&authority) {
-            uri.authority = Some(new_authority.parse().change_context_lazy(|| TransportError::Request)?);
-        }
-        
-        let uri: http::Uri = uri.try_into()
-            .change_context_lazy(|| TransportError::Request)?;
+        let authority = uri.authority()
+            .map(ToString::to_string)
+            .unwrap_or(String::new());
         
         let req = http::Request::builder()
             .method(Method::POST)
             .uri(uri)
-            .header("date", "")
+            .header("date", httpdate::fmt_http_date(SystemTime::now()))
             .header("host", authority)
             .header("content-type", "application/activity+json")
             .body(reqwest::Body::from(body))
-            .change_context_lazy(|| TransportError::Request)?;
+            .change_context_lazy(|| TransportError::Request)
+            .attach("failed request build.")?;
         
         let req = req.digest::<Sha256Hasher>().await
-            .change_context_lazy(|| TransportError::Digest)?;
+            .change_context_lazy(|| TransportError::Digest)
+            .attach("failed digest.")?;
         
         let req = req.sign(&*self.signer, &SIGNATURE_PARAMS).await
-            .change_context_lazy(|| TransportError::Sign)?;
+            .change_context_lazy(|| TransportError::Sign)
+            .attach("failed sign.")?;
         
         let req = req.proof(&*self.signer, &SIGNATURE_PARAMS).await
-            .change_context_lazy(|| TransportError::Sign)?;
+            .change_context_lazy(|| TransportError::Sign)
+            .attach("failed sign as Authorization")?;
         
         let req = req.map(reqwest::Body::wrap);
         
-        self.client.execute(reqwest::Request::try_from(req).unwrap()).await
-            .change_context_lazy(|| TransportError::Io)?;
+        let res = self.client.execute(reqwest::Request::try_from(req).unwrap()).await
+            .change_context_lazy(|| TransportError::Io)
+            .attach("fuck")?;
+        
+        tracing::debug!("{res:?}");
         
         Ok(())
     }
     
-    pub(crate) async fn fetch<T>(&self, uri: impl AsRef<str>) -> Result<Truth<T>, Report<InquiryError>>
+    #[tracing::instrument(skip_all)]
+    pub(crate) async fn fetch<T>(&self, uri: impl AsRef<str>) -> Result<UnverifiedObject<T>, Report<InquiryError>>
     where
         T: serde::de::DeserializeOwned
     {
-        let res = self.client.get(uri.as_ref()).send().await
-            .change_context_lazy(|| InquiryError::NotResponded)?;
+        let uri = uri.as_ref();
+        let res = self.client.get(uri)
+            .header("Accept", "application/activity+json")
+            .send()
+            .await
+            .change_context_lazy(|| InquiryError::NotResponded)
+            .attach_with(|| format!("Unable to establish connection with `{uri}`."))?;
         
-        let res: http::Response<reqwest::Body> = res.into();
+        let response: http::Response<reqwest::Body> = res.into();
         
-        let body: T = match res.body().as_bytes() {
-            None => return Err(Report::new(InquiryError::NotResponded)),
-            Some(bytes) => {
-                serde_json::from_slice(bytes)
-                    .change_context_lazy(|| InquiryError::Deserialization)?
-            }
-        };
+        let (parts, body) = response.into_parts();
         
-        if let Err(warn) = Box::pin(self.verify(res)).await {
-            return Ok(Truth::False {
-                value: body,
-                error: warn
-            })
-        };
+        let body = http_body_util::BodyExt::collect(body)
+            .await
+            .unwrap()
+            .to_bytes();
         
-        Ok(Truth::True(body))
+        let value: T = serde_json::from_slice(&body)
+            .change_context_lazy(|| InquiryError::Deserialization)?;
+        
+        Ok(UnverifiedObject {
+            value,
+            response: http::Response::from_parts(parts, reqwest::Body::from(body))
+        })
     }
     
     pub(crate) async fn verify<B>(&self, payload: impl Into<ReqOrRes<B>>) -> Result<ReqOrRes<Body>, Report<VerificationError>>
@@ -164,30 +166,37 @@ impl HttpClient {
         
         let payload = payload.into();
         let input = SignatureInput::try_from(&payload)
-            .change_context_lazy(|| VerificationError)?;
+            .change_context_lazy(|| VerificationError)
+            .attach("`SignatureInput` does not exist.")?;
+        
+        tracing::debug!("{:?}", input);
         
         let PublicKeyScheme { public_key } = self.fetch(input.key_id()).await
-            .change_context_lazy(|| VerificationError)?
+            .change_context_lazy(|| VerificationError)
+            .attach("PublicKey could not be obtained.")?
             .ignore();
         
-        let verifier = RsaVerifierKey::load(
-            input.key_id().to_string(),
-            public_key.public_key_pem()
-        ).change_context_lazy(|| VerificationError)?;
+        let verifier = RsaVerifierKey::new(input.key_id().to_string(), public_key.public_key_pem())
+            .change_context_lazy(|| VerificationError)
+            .attach("Cannot load public_key.")?;
         
         let payload = match payload {
             ReqOrRes::Request(req) => {
                 let req = req.verify_digest::<Sha256Hasher>().await
-                    .change_context_lazy(|| VerificationError)?;
+                    .change_context_lazy(|| VerificationError)
+                    .attach("Digest unverified")?;
                 req.verify_sign(&verifier).await
-                    .change_context_lazy(|| VerificationError)?;
+                    .change_context_lazy(|| VerificationError)
+                    .attach("Signature unverified")?;
                 ReqOrRes::Request(req)
             },
             ReqOrRes::Response(res) => {
                 let res = res.verify_digest::<Sha256Hasher>().await
-                    .change_context_lazy(|| VerificationError)?;
+                    .change_context_lazy(|| VerificationError)
+                    .attach("Digest unverified")?;
                 res.verify_sign(&verifier).await
-                    .change_context_lazy(|| VerificationError)?;
+                    .change_context_lazy(|| VerificationError)
+                    .attach("Signature unverified")?;
                 ReqOrRes::Response(res)
             }
         };
@@ -247,20 +256,50 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum Truth<T> {
-    True(T),
-    False {
-        value: T,
-        error: Report<VerificationError>
+pub struct UnverifiedObject<T, B = reqwest::Body>
+where
+    B: http_body::Body + Send,
+    B::Data: Send
+{
+    value: T,
+    response: http::Response<B>
+}
+
+impl<T, B> UnverifiedObject<T, B>
+where
+    B: http_body::Body + Send,
+    B::Data: Send
+{
+    pub fn ignore(self) -> T {
+        self.value
+    }
+    
+    pub async fn verify(self, client: &HttpClient) -> Result<T, Report<VerificationError>> {
+        client.verify(self.response).await?;
+        Ok(self.value)
     }
 }
 
-impl<T> Truth<T> {
-    pub fn ignore(self) -> T {
-        match self {
-            Truth::True(value) |
-            Truth::False { value, .. } => value
-        }
+
+#[cfg(test)]
+mod test {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use reqwest::Certificate;
+    
+    #[tokio::test]
+    async fn req_actor() {
+        let mut client = reqwest::Client::builder();
+        client = client.add_root_certificate(Certificate::from_pem(include_bytes!("../../../.certs/misskey.crt")).unwrap());
+        client = client.resolve("misskey.localhost", SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4430));
+        let client = client.build().unwrap();
+        
+        let res = client.get("https://misskey.localhost/users/adii7031gijl0001")
+            .header("Accept", "application/activity+json")
+            .send()
+            .await
+            .unwrap();
+        
+        let body = res.text().await.unwrap();
+        println!("{body:?}");
     }
 }

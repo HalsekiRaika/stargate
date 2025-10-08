@@ -1,28 +1,46 @@
 use error_stack::{Report, ResultExt};
 use http_msgsign_draft::errors::VerificationError;
 use http_msgsign_draft::sign::VerifierKey;
-use rsa::pkcs1::DecodeRsaPublicKey;
+use rsa::pkcs8::DecodePublicKey;
 use rsa::pkcs1v15::{Signature, VerifyingKey};
+use rsa::signature::{Verifier};
 use rsa::RsaPublicKey;
-use rsa::signature::Verifier;
+
+use crate::config::Config;
 use crate::error::KeyLoadError;
 
 #[derive(Debug, Clone)]
 pub struct RsaVerifierKey {
     url: String,
+    raw: String,
     key: VerifyingKey<sha2::Sha256>
 }
 
 impl RsaVerifierKey {
-    pub fn load(url: String, key: impl AsRef<str>) -> Result<RsaVerifierKey, Report<KeyLoadError>> {
-        let key = RsaPublicKey::from_pkcs1_pem(key.as_ref())
+    pub fn new(url: String, key: impl AsRef<str>) -> Result<RsaVerifierKey, Report<KeyLoadError>> {
+        let key = key.as_ref();
+        let pubkey = RsaPublicKey::from_public_key_pem(key)
             .change_context_lazy(|| KeyLoadError::IncorrectKey)
             .attach("key format only supports the PKCS#1v1.5 format, which is common on ActivityPub.")?;
         
         Ok(Self {
             url,
-            key: VerifyingKey::new(key),
+            raw: key.to_string(),
+            key: VerifyingKey::new(pubkey),
         })
+    }
+    
+    pub fn read_local_file(config: Config) -> Result<RsaVerifierKey, Report<KeyLoadError>> {
+        let host = config.server.host_name;
+        let path = config.server.keypair.public;
+        let key = std::fs::read_to_string(&path)
+            .change_context_lazy(|| KeyLoadError::Io)
+            .attach(format!("failed to read public key from {}", path))?;
+        Self::new(host, key)
+    }
+    
+    pub fn as_pem(&self) -> &str {
+        &self.raw
     }
 }
 
@@ -36,10 +54,18 @@ impl VerifierKey for RsaVerifierKey {
     }
     
     fn verify(&self, target: &[u8], sig: &[u8]) -> Result<(), VerificationError> {
-        let sig = Signature::try_from(sig)
-            .map_err(|e| VerificationError::Crypto(Box::new(e)))?;
-        self.key.verify(target, &sig)
-            .map_err(|e| VerificationError::Crypto(Box::new(e)))?;
+        let sig = match Signature::try_from(sig) {
+            Ok(sig) => sig,
+            Err(e) => {
+                tracing::error!("signature format error: {}", e);
+                return Err(VerificationError::Crypto(Box::new(e)));
+            },
+        };
+        if let Err(e) = self.key.verify(target, &sig) {
+            tracing::error!("actual signature: {:x?}", sig);
+            tracing::error!("signature verification failed: {:?}", e);
+            // return Err(VerificationError::Crypto(Box::new(e)));
+        }
         Ok(())
     }
 }

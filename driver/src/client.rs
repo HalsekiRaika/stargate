@@ -1,2 +1,2 @@
 pub mod http;
-mod cache;
+pub mod cache;

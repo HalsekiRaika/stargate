@@ -3,7 +3,7 @@ use std::io::Read;
 use std::path::Path;
 use error_stack::{Report, ResultExt};
 use http_msgsign_draft::sign::SignerKey;
-use rsa::pkcs1::DecodeRsaPrivateKey;
+use rsa::pkcs8::DecodePrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::signature::{SignatureEncoding, Signer};
 use crate::error::KeyLoadError;
@@ -29,7 +29,7 @@ impl RsaSignerKey {
         load.read_to_string(&mut buf)
             .change_context_lazy(|| KeyLoadError::Io)?;
         
-        let key = SigningKey::from_pkcs1_pem(&buf)
+        let key = SigningKey::from_pkcs8_pem(&buf)
             .change_context_lazy(|| KeyLoadError::IncorrectKey)
             .attach("key format only supports the PKCS#1v1.5 format, which is common on ActivityPub.")?;
         

@@ -5,4 +5,5 @@ Cargo.lock
 
 .keys
 .certs
+.logs
 *.local.json

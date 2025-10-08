@@ -1,3 +1,3 @@
 pub mod middleware;
-mod models;
-mod well_known;
+pub mod well_known;
+pub mod actor;

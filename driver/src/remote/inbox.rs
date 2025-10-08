@@ -10,6 +10,12 @@ pub struct InboxTransportClient {
     client: HttpClient
 }
 
+impl InboxTransportClient {
+    pub fn new(client: HttpClient) -> Self {
+        Self { client }
+    }
+}
+
 impl RemoteInboxTransport for  InboxTransportClient {
     async fn transport(&self, to: &str, activity: &Activity) -> Result<(), Delegate> {
         InboxTransportClientInternal::transport(to, activity, &self.client).await?;

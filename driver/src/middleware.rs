@@ -1,1 +1,1 @@
-mod httpsig;
+pub mod httpsig;

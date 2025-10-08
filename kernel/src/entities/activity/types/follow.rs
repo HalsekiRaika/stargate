@@ -50,5 +50,8 @@ impl ActivityJson<Follow> {
 }
 
 impl ActivityType for Follow {
+    const LD_CONTEXT: &'static [&'static str] = &[
+        "https://www.w3.org/ns/activitystreams"
+    ];
     const OBJECT_TYPE: &'static str = "Follow";
 }

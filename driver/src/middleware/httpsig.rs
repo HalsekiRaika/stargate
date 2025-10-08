@@ -1,6 +1,5 @@
-use error_stack::{Report, ResultExt};
+use error_stack::Report;
 use http_msgsign_draft::digest::body::Body;
-use http_msgsign_draft::sign::headers::SignatureInput;
 
 use crate::client::http::{HttpClient, ReqOrRes};
 use crate::error::VerificationError;
@@ -8,7 +7,7 @@ use crate::error::VerificationError;
 pub trait HttpSignatureVerifier: 'static + Sync + Send {
     fn verify<B>(&self, request: http::Request<B>) -> impl Future<Output=Result<http::Request<Body>, Report<VerificationError>>> + Send
     where
-        B: http_body::Body + Send + Sync,
+        B: http_body::Body + Send,
         B::Data: Send;
 }
 
@@ -30,6 +29,7 @@ impl HttpSignatureVerifierClient {
 
 
 impl HttpSignatureVerifier for HttpSignatureVerifierClient {
+    #[tracing::instrument(skip_all)]
     async fn verify<B>(&self, request: http::Request<B>) -> Result<http::Request<Body>, Report<VerificationError>>
     where
         B: http_body::Body + Send,

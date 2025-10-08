@@ -46,5 +46,9 @@ impl From<Accept> for Activity {
 }
 
 impl ActivityType for Accept {
+    const LD_CONTEXT: &'static [&'static str] = &[
+        "https://www.w3.org/ns/activitystreams"
+    ];
+    
     const OBJECT_TYPE: &'static str = "Accept";
 }
