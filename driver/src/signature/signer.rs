@@ -5,13 +5,14 @@ use error_stack::{Report, ResultExt};
 use http_msgsign_draft::sign::SignerKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::pkcs1v15::SigningKey;
+use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
 use crate::error::KeyLoadError;
 
 #[derive(Debug)]
 pub struct RsaSignerKey {
     url: String,
-    key: SigningKey<sha2::Sha256>
+    key: SigningKey<Sha256>
 }
 
 impl RsaSignerKey {
@@ -49,6 +50,7 @@ impl SignerKey for RsaSignerKey {
         "rsa-sha256".to_string()
     }
     
+    #[tracing::instrument(skip_all, name = "rsa-rs")]
     fn sign(&self, target: &[u8]) -> Vec<u8> {
         self.key
             .sign(target)

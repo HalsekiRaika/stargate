@@ -1,5 +1,5 @@
 pub mod client;
-pub mod keyset;
+pub mod signature;
 pub mod config;
 pub mod error;
 pub mod remote;

@@ -15,7 +15,8 @@ pub fn init_or_load(path: impl AsRef<Path>) -> Result<Config, Report<ConfigError
     let mut load = OpenOptions::new()
         .read(true)
         .open(path)
-        .change_context_lazy(|| ConfigError::Io)?;
+        .change_context_lazy(|| ConfigError::Io)
+        .attach_with(|| format!("Check that {path:?}/config.toml is valid."))?;
     
     let mut buf = Vec::new();
     load.read_to_end(&mut buf)

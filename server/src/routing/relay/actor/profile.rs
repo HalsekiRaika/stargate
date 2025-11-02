@@ -1,8 +1,7 @@
-use std::sync::LazyLock;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
-use axum::Json;
 use axum::response::IntoResponse;
+use axum::Json;
 
 use crate::app::AppModule;
 

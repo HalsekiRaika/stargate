@@ -26,7 +26,8 @@ http-msgsign-draft.workspace = true
 
 futures-util = "^0.3"
 
-rsa = { version = "0.9.8", features = ["getrandom", "sha2"] }
+# Crypto
+rsa = { version = "0.10.0-rc.9", features = ["sha2"] }
 sha2 = "0.10.9"
 
 tempfile = "^3"

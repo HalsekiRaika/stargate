@@ -5,7 +5,7 @@ use app_cmd::config::DependOnAppConfig;
 use app_cmd::interactors::DependOnRelayFollowAcceptInteractor;
 use driver::client::http::HttpClient;
 use driver::config::Config;
-use driver::keyset::RsaVerifierKey;
+use driver::signature::RsaVerifierKey;
 use driver::middleware::httpsig::{DependOnHttpSignatureVerifier, HttpSignatureVerifierClient};
 use driver::remote::{ActorInquiryClient, InboxTransportClient};
 use kernel::interface::remotes::{DependOnRemoteActorInquiry, DependOnRemoteInboxTransport};

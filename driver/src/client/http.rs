@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::fmt::Debug;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use error_stack::{Report, ResultExt};
@@ -7,7 +6,7 @@ use http::Method;
 use http_msgsign_draft::digest::body::Body;
 use http_msgsign_draft::digest::Digest;
 use http_msgsign_draft::errors::SignatureInputError;
-use http_msgsign_draft::sign::{RequestSign, ResponseSign, SignatureParams};
+use http_msgsign_draft::sign::{RequestSign, SignatureParams};
 use http_msgsign_draft::sign::headers::SignatureInput;
 use serde::{Deserialize, Serialize};
 use kernel::entities::activity::Activity;
@@ -16,7 +15,7 @@ use kernel::entities::links::types::PublicKey;
 use crate::config::Config;
 use crate::error::{InquiryError, SetupError, TransportError, VerificationError};
 use crate::hasher::Sha256Hasher;
-use crate::keyset::{RsaSignerKey, RsaVerifierKey};
+use crate::signature::{RsaSignerKey, RsaVerifierKey};
 
 #[derive(Debug, Clone)]
 pub struct HttpClient {
@@ -111,16 +110,14 @@ impl HttpClient {
         
         let req = req.map(reqwest::Body::wrap);
         
-        let res = self.client.execute(reqwest::Request::try_from(req).unwrap()).await
+        self.client.execute(reqwest::Request::try_from(req).unwrap()).await
             .change_context_lazy(|| TransportError::Io)
             .attach("fuck")?;
-        
-        tracing::debug!("{res:?}");
         
         Ok(())
     }
     
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, name = "fetch")]
     pub(crate) async fn fetch<T>(&self, uri: impl AsRef<str>) -> Result<UnverifiedObject<T>, Report<InquiryError>>
     where
         T: serde::de::DeserializeOwned
@@ -151,9 +148,10 @@ impl HttpClient {
         })
     }
     
+    #[tracing::instrument(skip_all, name = "verify")]
     pub(crate) async fn verify<B>(&self, payload: impl Into<ReqOrRes<B>>) -> Result<ReqOrRes<Body>, Report<VerificationError>>
     where
-        B: http_body::Body + Send,
+        B: http_body::Body + Send + Debug,
         B::Data: Send
     {
         // Deserialize only the publicKey scheme for signature verification.
@@ -165,11 +163,10 @@ impl HttpClient {
         }
         
         let payload = payload.into();
+        
         let input = SignatureInput::try_from(&payload)
             .change_context_lazy(|| VerificationError)
             .attach("`SignatureInput` does not exist.")?;
-        
-        tracing::debug!("{:?}", input);
         
         let PublicKeyScheme { public_key } = self.fetch(input.key_id()).await
             .change_context_lazy(|| VerificationError)
@@ -185,7 +182,7 @@ impl HttpClient {
                 let req = req.verify_digest::<Sha256Hasher>().await
                     .change_context_lazy(|| VerificationError)
                     .attach("Digest unverified")?;
-                req.verify_sign(&verifier).await
+                input.verify_request(&req, &verifier)
                     .change_context_lazy(|| VerificationError)
                     .attach("Signature unverified")?;
                 ReqOrRes::Request(req)
@@ -194,7 +191,7 @@ impl HttpClient {
                 let res = res.verify_digest::<Sha256Hasher>().await
                     .change_context_lazy(|| VerificationError)
                     .attach("Digest unverified")?;
-                res.verify_sign(&verifier).await
+                input.verify_response(&res,  &verifier)
                     .change_context_lazy(|| VerificationError)
                     .attach("Signature unverified")?;
                 ReqOrRes::Response(res)
@@ -267,7 +264,7 @@ where
 
 impl<T, B> UnverifiedObject<T, B>
 where
-    B: http_body::Body + Send,
+    B: http_body::Body + Send + Debug,
     B::Data: Send
 {
     pub fn ignore(self) -> T {
@@ -277,29 +274,5 @@ where
     pub async fn verify(self, client: &HttpClient) -> Result<T, Report<VerificationError>> {
         client.verify(self.response).await?;
         Ok(self.value)
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use reqwest::Certificate;
-    
-    #[tokio::test]
-    async fn req_actor() {
-        let mut client = reqwest::Client::builder();
-        client = client.add_root_certificate(Certificate::from_pem(include_bytes!("../../../.certs/misskey.crt")).unwrap());
-        client = client.resolve("misskey.localhost", SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4430));
-        let client = client.build().unwrap();
-        
-        let res = client.get("https://misskey.localhost/users/adii7031gijl0001")
-            .header("Accept", "application/activity+json")
-            .send()
-            .await
-            .unwrap();
-        
-        let body = res.text().await.unwrap();
-        println!("{body:?}");
     }
 }

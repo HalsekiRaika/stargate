@@ -5,7 +5,7 @@ use rsa::pkcs8::DecodePublicKey;
 use rsa::pkcs1v15::{Signature, VerifyingKey};
 use rsa::signature::{Verifier};
 use rsa::RsaPublicKey;
-
+use rsa::sha2::Sha256;
 use crate::config::Config;
 use crate::error::KeyLoadError;
 
@@ -13,7 +13,7 @@ use crate::error::KeyLoadError;
 pub struct RsaVerifierKey {
     url: String,
     raw: String,
-    key: VerifyingKey<sha2::Sha256>
+    key: VerifyingKey<Sha256>
 }
 
 impl RsaVerifierKey {
@@ -30,6 +30,7 @@ impl RsaVerifierKey {
         })
     }
     
+    // noinspection DuplicatedCode
     pub fn read_local_file(config: Config) -> Result<RsaVerifierKey, Report<KeyLoadError>> {
         let host = config.server.host_name;
         let path = config.server.keypair.public;
@@ -53,6 +54,7 @@ impl VerifierKey for RsaVerifierKey {
         "rsa-sha256".to_string()
     }
     
+    #[tracing::instrument(skip_all, name = "rsa-rs")]
     fn verify(&self, target: &[u8], sig: &[u8]) -> Result<(), VerificationError> {
         let sig = match Signature::try_from(sig) {
             Ok(sig) => sig,
@@ -64,7 +66,7 @@ impl VerifierKey for RsaVerifierKey {
         if let Err(e) = self.key.verify(target, &sig) {
             tracing::error!("actual signature: {:x?}", sig);
             tracing::error!("signature verification failed: {:?}", e);
-            // return Err(VerificationError::Crypto(Box::new(e)));
+            return Err(VerificationError::Crypto(Box::new(e)));
         }
         Ok(())
     }
