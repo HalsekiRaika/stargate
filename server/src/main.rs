@@ -1,7 +1,6 @@
 use axum::Router;
 use axum::routing::{get, post};
 use error_stack::{Report, ResultExt};
-use tower::ServiceBuilder;
 use server::{self, error::UnrecoverableError};
 
 #[tokio::main]
