@@ -17,6 +17,7 @@ impl InboxTransportClient {
 }
 
 impl RemoteInboxTransport for  InboxTransportClient {
+    #[tracing::instrument(skip_all, name = "remote_transport")]
     async fn transport(&self, to: &str, activity: &Activity) -> Result<(), Delegate> {
         InboxTransportClientInternal::transport(to, activity, &self.client).await?;
         Ok(())

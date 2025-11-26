@@ -8,7 +8,7 @@ use crate::error::InquiryError;
 
 #[derive(Debug, Clone)]
 pub struct ActorInquiryClient {
-    client: HttpClient
+    client: HttpClient,
 }
 
 impl ActorInquiryClient {
@@ -18,6 +18,7 @@ impl ActorInquiryClient {
 }
 
 impl RemoteActorInquiry for ActorInquiryClient {
+    #[tracing::instrument(skip_all, name = "actor_inquiry")]
     async fn inquire(&self, actor: &ActorId) -> Result<Actor, Delegate> {
         let actor = ActorInquiryClientInternal::inquire_actor(actor, &self.client).await?;
         Ok(actor)
