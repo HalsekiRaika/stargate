@@ -28,17 +28,6 @@ pub(crate) struct ActorInquiryClientInternal;
 
 impl ActorInquiryClientInternal {
     pub async fn inquire_actor(actor: &ActorId, client: &HttpClient) -> Result<Actor, Report<InquiryError>> {
-        // match client
-        //     .fetch::<Actor>(actor).await?
-        //     .verify(client).await
-        // {
-        //     Ok(actor) => Ok(actor),
-        //     Err(err) => {
-        //         tracing::warn!("{err}");
-        //         Err(err.change_context(InquiryError::InvalidSignature))
-        //     }
-        // }
-        let actor = client.fetch::<Actor>(actor).await?.ignore();
-        Ok(actor)
+        Ok(client.fetch::<Actor>(actor).await?.ignore())
     }
 }
