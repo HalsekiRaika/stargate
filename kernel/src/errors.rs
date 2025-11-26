@@ -3,5 +3,7 @@ pub enum KernelError {
     #[error("Parsing error")]
     Parse,
     #[error("")]
-    Serialize
+    Serialize,
+    #[error("")]
+    Deserialize,
 }
