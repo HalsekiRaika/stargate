@@ -8,7 +8,7 @@ use http_msgsign_draft::digest::Digest;
 use http_msgsign_draft::errors::SignatureInputError;
 use http_msgsign_draft::sign::{RequestSign, SignatureParams};
 use http_msgsign_draft::sign::headers::SignatureInput;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use kernel::entities::activity::Activity;
 use kernel::entities::links::types::PublicKey;
 
@@ -156,13 +156,15 @@ impl HttpClient {
     {
         // Deserialize only the publicKey scheme for signature verification.
         // See https://docs.joinmastodon.org/spec/activitypub/#publicKey
-        #[derive(Debug, Deserialize, Serialize)]
+        #[derive(Debug, Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct PublicKeyScheme {
             public_key: PublicKey
         }
         
         let payload = payload.into();
+        
+        tracing::debug!("\n{payload:#?}");
         
         let input = SignatureInput::try_from(&payload)
             .change_context_lazy(|| VerificationError)
@@ -197,6 +199,8 @@ impl HttpClient {
                 ReqOrRes::Response(res)
             }
         };
+        
+        tracing::debug!("payload verified.");
         
         Ok(payload)
     }
